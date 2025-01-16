@@ -114,10 +114,9 @@ set(SOURCES
   deps/libretro-common/encodings/encoding_utf.c
   deps/libretro-common/file/file_path.c
   deps/libretro-common/file/file_path_io.c
-  deps/libretro-common/vfs/vfs_implementation.c
-  deps/libretro-common/libco/libco.c
   deps/libretro-common/string/stdstring.c
   deps/libretro-common/time/rtime.c
+  deps/libretro-common/vfs/vfs_implementation.c
   deps/OpenSyobonAction/loadg.cpp
   deps/OpenSyobonAction/DxLib.cpp
 )

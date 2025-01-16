@@ -1,25 +1,19 @@
 #include <unistd.h>
 #include <SDL_libretro.h>
-#include <libco.h>
 #include <file/file_path.h>
 
 #define main osa_main
-#define SDL_Flip(screen) SDL_libretro_co_yield()
-#define SDL_Delay(i)
-#define WaitKey _WaitKey
-
 #include <OpenSyobonAction/main.cpp>
 
-retro_audio_sample_batch_t SDL_libretro_audio_batch_cb;
-retro_input_state_t SDL_libretro_input_state_cb;
 
-static void fallback_log(enum retro_log_level level, const char *fmt, ...);
-static retro_video_refresh_t video_cb;
-static retro_input_poll_t input_poll_cb;
-
-static retro_log_printf_t log_cb = fallback_log;
-static retro_environment_t environ_cb;
-static cothread_t retro_ct, game_ct;
+static void                        fallback_log(enum retro_log_level level, const char *fmt, ...);
+static retro_log_printf_t          log_cb = fallback_log;
+static retro_video_refresh_t       video_cb;
+static retro_input_state_t         input_state_cb;
+static retro_input_poll_t          input_poll_cb;
+static retro_audio_sample_batch_t  audio_batch_cb;
+static retro_environment_t         environ_cb;
+static SDL_Thread                 *game_thread;
 
 static void fallback_log(enum retro_log_level level, const char *fmt, ...)
 {
@@ -28,30 +22,6 @@ static void fallback_log(enum retro_log_level level, const char *fmt, ...)
     va_start(va, fmt);
     vfprintf(stderr, fmt, va);
     va_end(va);
-}
-
-byte _WaitKey()
-{
-    SDL_Event event;
-    while (true) {
-        SDL_libretro_co_yield();
-	while (SDL_PollEvent(&event)) {
-	    if (event.type == SDL_KEYDOWN)
-		return event.key.keysym.sym;
-        }
-    }
-}
-
-void SDL_libretro_co_yield(void)
-{
-    co_switch(retro_ct);
-}
-
-void SDL_libretro_video_refresh()
-{
-    SDL_Surface *screen = SDL_GetVideoSurface();
-    if (screen)
-        video_cb(screen->pixels, screen->w, screen->h, screen->pitch);
 }
 
 unsigned retro_api_version(void)
@@ -81,7 +51,7 @@ void retro_set_audio_sample(retro_audio_sample_t cb)
 
 void retro_set_audio_sample_batch(retro_audio_sample_batch_t cb)
 {
-    SDL_libretro_audio_batch_cb = cb;
+    audio_batch_cb = cb;
 }
 
 void retro_set_input_poll(retro_input_poll_t cb)
@@ -91,14 +61,14 @@ void retro_set_input_poll(retro_input_poll_t cb)
 
 void retro_set_input_state(retro_input_state_t cb)
 {
-    SDL_libretro_input_state_cb = cb;
+    input_state_cb = cb;
 }
 
 void retro_get_system_info(struct retro_system_info *info)
 {
     info->need_fullpath = false;
     info->valid_extensions = "";
-    info->library_version = "0.2";
+    info->library_version = "0.3";
     info->library_name = "syobonaction";
     info->block_extract = false;
 }
@@ -111,21 +81,21 @@ void retro_get_system_av_info(struct retro_system_av_info *info)
     info->geometry.base_height = height;
     info->geometry.max_width = width;
     info->geometry.max_height = height;
-    info->timing.fps = 30.0;
+    info->timing.fps = 60.0;
     info->timing.sample_rate = 22050;
 }
+
 
 void retro_init(void)
 {
     enum retro_pixel_format pixfmt = RETRO_PIXEL_FORMAT_XRGB8888;
     environ_cb(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &pixfmt);
-    retro_ct = co_active();
 }
 
-static void game_main(void)
+static int game_main(void *data)
 {
     osa_main(0, NULL);
-    co_switch(retro_ct);
+    return 0;
 }
 
 bool retro_load_game(const struct retro_game_info *game)
@@ -139,7 +109,14 @@ bool retro_load_game(const struct retro_game_info *game)
         log_cb(RETRO_LOG_ERROR, "Missing game assets directory: %s\n", game_dir);
         return false;
     }
-    game_ct = co_create(1024*1024, game_main);
+
+    game_thread = SDL_CreateThread(game_main, NULL);
+
+    struct retro_keyboard_callback keyboard = {
+        .callback = SDL_libretro_KeyboardCallback,
+    };
+    environ_cb(RETRO_ENVIRONMENT_SET_KEYBOARD_CALLBACK, &keyboard);
+
     return true;
 }
 
@@ -155,11 +132,51 @@ void retro_reset(void)
 {
 }
 
+static void pump_joypad_events(void)
+{
+    static SDL_keysym sym;
+    static int16_t buttons[16] = {0};
+    static const SDLKey bkeys[16] = {
+        [RETRO_DEVICE_ID_JOYPAD_B]      = SDLK_SPACE,
+        [RETRO_DEVICE_ID_JOYPAD_Y]      = SDLK_RETURN,
+        [RETRO_DEVICE_ID_JOYPAD_SELECT] = SDLK_F1,
+        [RETRO_DEVICE_ID_JOYPAD_START]  = SDLK_0,
+        [RETRO_DEVICE_ID_JOYPAD_UP]     = SDLK_UP,
+        [RETRO_DEVICE_ID_JOYPAD_DOWN]   = SDLK_DOWN,
+        [RETRO_DEVICE_ID_JOYPAD_LEFT]   = SDLK_LEFT,
+        [RETRO_DEVICE_ID_JOYPAD_RIGHT]  = SDLK_RIGHT,
+        [RETRO_DEVICE_ID_JOYPAD_A]      = SDLK_z,
+        [RETRO_DEVICE_ID_JOYPAD_X]      = SDLK_o,
+        [RETRO_DEVICE_ID_JOYPAD_L]      = SDLK_s,
+        [RETRO_DEVICE_ID_JOYPAD_R]      = SDLK_1,
+        [RETRO_DEVICE_ID_JOYPAD_L2]     = SDLK_2,
+        [RETRO_DEVICE_ID_JOYPAD_R2]     = SDLK_3,
+        [RETRO_DEVICE_ID_JOYPAD_L3]     = SDLK_4,
+        [RETRO_DEVICE_ID_JOYPAD_R3]     = SDLK_5,
+    };
+
+    for (int i = 0; i < 16; ++i) {
+        int16_t state = input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, i);
+        SDLKey k = bkeys[i];
+
+        if (k && buttons[i] != state) {
+            buttons[i] = state;
+            sym.scancode = k;
+            sym.sym = k;
+            SDL_PrivateKeyboard(state ? SDL_PRESSED : SDL_RELEASED, &sym);
+        }
+    }
+}
+
 void retro_run(void)
 {
-    co_switch(game_ct);
+    if (SDL_GetVideoSurface() == NULL)
+        return;
+
     input_poll_cb();
-    SDL_libretro_video_refresh();
+    pump_joypad_events();
+    SDL_libretro_RefreshVideo(video_cb);
+    SDL_libretro_ProduceAudio(audio_batch_cb);
 }
 
 size_t retro_serialize_size(void)
@@ -187,10 +204,10 @@ bool retro_load_game_special(unsigned game_type, const struct retro_game_info *i
 
 void retro_unload_game(void)
 {
-    maint = 3;
-    co_switch(game_ct);
-    deinit();
-    co_delete(game_ct);
+    SDL_Event event;
+    event.type = SDL_QUIT;
+    SDL_PushEvent(&event);
+    SDL_WaitThread(game_thread, NULL);
 }
 
 unsigned retro_get_region(void)

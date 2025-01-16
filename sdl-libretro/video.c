@@ -7,6 +7,8 @@
 
 #define DUMMYVID_DRIVER_NAME "dummy"
 
+static SDL_Surface *_surface = NULL;
+
 /* Initialization/Query functions */
 static int DUMMY_VideoInit(_THIS, SDL_PixelFormat *vformat);
 static SDL_Rect **DUMMY_ListModes(_THIS, SDL_PixelFormat *format, Uint32 flags);
@@ -125,8 +127,6 @@ SDL_Surface *DUMMY_SetVideoMode(_THIS, SDL_Surface *current,
         return(NULL);
     }
 
-    /* 	printf("Setting mode %dx%d\n", width, height); */
-
     SDL_memset(this->hidden->buffer, 0, width * height * (bpp / 8));
 
     /* Allocate the new pixel format for the screen */
@@ -138,11 +138,22 @@ SDL_Surface *DUMMY_SetVideoMode(_THIS, SDL_Surface *current,
     }
 
     /* Set up the new mode framebuffer */
-    current->flags = flags & SDL_FULLSCREEN;
+    current->flags = flags & (SDL_FULLSCREEN);
     this->hidden->w = current->w = width;
     this->hidden->h = current->h = height;
     current->pitch = current->w * (bpp / 8);
     current->pixels = this->hidden->buffer;
+
+    if (_surface == NULL) {
+        _surface = SDL_CreateRGBSurface(SDL_SWSURFACE, width, height, 32,
+                                        0x00ff0000, 0x0000ff00, 0x000000ff, 0x00000000);
+        if (_surface == NULL) {
+            SDL_free(this->hidden->buffer);
+            this->hidden->buffer = NULL;
+            SDL_SetError("Couldn't create video surface");
+            return NULL;
+        }
+    }
 
     /* We're done */
     return current;
@@ -151,7 +162,7 @@ SDL_Surface *DUMMY_SetVideoMode(_THIS, SDL_Surface *current,
 /* We don't actually allow hardware surfaces other than the main one */
 static int DUMMY_AllocHWSurface(_THIS, SDL_Surface *surface)
 {
-    return -1;
+    return 0;
 }
 static void DUMMY_FreeHWSurface(_THIS, SDL_Surface *surface)
 {
@@ -171,6 +182,8 @@ static void DUMMY_UnlockHWSurface(_THIS, SDL_Surface *surface)
 
 static void DUMMY_UpdateRects(_THIS, int numrects, SDL_Rect *rects)
 {
+    SDL_Surface *screen = SDL_GetVideoSurface();
+    SDL_BlitSurface(screen, NULL, _surface, NULL);
 }
 
 int DUMMY_SetColors(_THIS, int firstcolor, int ncolors, SDL_Color *colors)
@@ -188,4 +201,14 @@ void DUMMY_VideoQuit(_THIS)
         SDL_free(this->screen->pixels);
         this->screen->pixels = NULL;
     }
+
+    if (_surface) {
+        SDL_FreeSurface(_surface);
+        _surface = NULL;
+    }
+}
+
+void SDL_libretro_RefreshVideo(retro_video_refresh_t video_cb)
+{
+    video_cb(_surface->pixels, _surface->w, _surface->h, _surface->pitch);
 }
