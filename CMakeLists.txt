@@ -42,6 +42,7 @@ set(SOURCES
   deps/libvorbis/lib/bitrate.c
   deps/libvorbis/lib/vorbisfile.c
   deps/sdl/src/SDL.c
+  deps/sdl/src/SDL_dummy.c
   deps/sdl/src/SDL_error.c
   deps/sdl/src/SDL_fatal.c
   deps/sdl/src/audio/SDL_audio.c
@@ -68,10 +69,24 @@ set(SOURCES
   deps/sdl/src/stdlib/SDL_stdlib.c
   deps/sdl/src/stdlib/SDL_string.c
   deps/sdl/src/thread/SDL_thread.c
+)
+
+if (WIN32 OR MSYS)
+  set(SOURCES ${SOURCES}
+  deps/sdl/src/thread/win32/SDL_sysmutex.c
+  deps/sdl/src/thread/win32/SDL_syssem.c
+  deps/sdl/src/thread/win32/SDL_systhread.c
+  )
+else ()
+  set(SOURCES ${SOURCES}
   deps/sdl/src/thread/pthread/SDL_syscond.c
   deps/sdl/src/thread/pthread/SDL_sysmutex.c
   deps/sdl/src/thread/pthread/SDL_syssem.c
   deps/sdl/src/thread/pthread/SDL_systhread.c
+  )
+endif ()
+
+set(SOURCES ${SOURCES}
   deps/sdl/src/timer/SDL_timer.c
   deps/sdl/src/timer/unix/SDL_systimer.c
   deps/sdl/src/video/SDL_blit_0.c
@@ -111,6 +126,7 @@ set(SOURCES
   sdl-libretro/video.c
   sdl-libretro/SDL_image.c
   deps/libretro-common/compat/compat_strl.c
+  deps/libretro-common/compat/fopen_utf8.c
   deps/libretro-common/encodings/encoding_utf.c
   deps/libretro-common/file/file_path.c
   deps/libretro-common/file/file_path_io.c
@@ -123,6 +139,13 @@ set(SOURCES
 
 if (LIBRETRO_STATIC)
   add_library(syobonaction_libretro STATIC ${SOURCES})
+elseif (WIN32 OR MSYS)
+  add_library(syobonaction_libretro SHARED ${SOURCES})
+  target_link_options(syobonaction_libretro PRIVATE
+    -static
+    -Wl,--version-script=${CMAKE_SOURCE_DIR}/link.T
+    -Wl,--no-undefined
+  )
 else ()
   add_library(syobonaction_libretro SHARED ${SOURCES})
   target_link_options(syobonaction_libretro PRIVATE
@@ -134,6 +157,13 @@ endif ()
 target_compile_definitions(syobonaction_libretro PRIVATE
   -D_FILE_OFFSET_BITS=64 -DFT2_BUILD_LIBRARY=1 -DOGG_MUSIC
 )
+
+if (WIN32 OR MSYS)
+  target_compile_options(syobonaction_libretro PRIVATE
+    -Wno-error=int-conversion
+    -Wno-error=incompatible-pointer-types
+  )
+endif ()
 
 target_include_directories(syobonaction_libretro PRIVATE
   deps
