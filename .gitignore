@@ -1,2 +1,9 @@
+CMakeCache.txt
+CMakeFiles
 deps
 deps.tar.xz
+Makefile
+*.cmake
+*.o
+*.a
+*.dll
