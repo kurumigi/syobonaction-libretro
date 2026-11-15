@@ -1,3 +1,11 @@
+# An attempt to get "Libretro core for Open Syobon Action" running on Windows.
+
+Modified version of [syobonaction-libretro](https://github.com/iyzsong/syobonaction-libretro).
+
+---
+__The rest of this README is unchanged.__
+---
+
 ## Libretro core for Open Syobon Action
 
 Open Syobon Action (オープンしょぼんのアクション) is an open-source cross-platform port of the unforgiving Japanese platformer using SDL. This project provides a libretro core allowing it to be played with libretro frontends such as RetroArch.
